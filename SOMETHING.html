@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Blossom Pairs - Online</title>
+<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+<style>
+body{font-family:system-ui, 'Segoe UI'; background:#d0159e; display:flex; flex-direction:column; align-items:center; padding:15px; margin:0; min-height:100vh;}
+.bg-blob{position:fixed; border-radius:50%; filter:blur(70px); opacity:0.5; z-index:-1;}
+.blob1{width:400px; height:400px; background:#54c5e7; top:-80px; left:-80px;} .blob2{width:500px; height:500px; background:#30a6ea; bottom:-100px; right:-100px;}
+h1{color:#4be462e1; margin:10px 0 0; font-size:36px;} h1 span{color:#4a3aff; background:rgb(241, 239, 239); padding:2px 12px; border-radius:10px; box-shadow:0 4px 10px rgba(0,0,0,0.08);}
+.tag{font-size:12px; letter-spacing:3px; color:#454344; margin-bottom:10px;}
+.panel{background:rgba(233, 239, 231, 0.95); padding:18px; border-radius:22px; box-shadow:0 10px 30px rgba(0,0,0,.1); width:100%; max-width:380px; text-align:center; margin:15px; backdrop-filter:blur(10px);}
+.grid{display:grid; grid-template-columns:repeat(4, 78px); gap:11px; background:rgba(238, 239, 238, 0.91); padding:16px; border-radius:24px; box-shadow:0 8px 25px rgba(0,0,0,.08);}
+.card{width:78px; height:78px; position:relative; transform-style:preserve-3d; transition:transform 0.65s cubic-bezier(0.34,1.56,0.64,1); cursor:pointer}
+.card.flipped{transform:rotateY(180deg)} .card.matched{transform:rotateY(180deg) scale(0.88); opacity:0.6}
+.front,.back{position:absolute; inset:0; backface-visibility:hidden; border-radius:16px; display:flex; align-items:center; justify-content:center}
+.front{background:white; transform:rotateY(180deg); font-size:34px; box-shadow:inset 0 0 0 1px #eee} .back{background:linear-gradient(135deg,#ff6aa2,#1709b0); color:white; font-size:20px} .back::after{content:'🌸'}
+button{padding:12px 20px; border:none; border-radius:25px; background:#111; color:white; cursor:pointer; font-weight:700; margin:4px; font-size:14px}
+button:active{transform:scale(0.96)}
+input{padding:12px; border-radius:12px; border:1.5px solid #e5d5e0; width:110px; text-align:center; font-weight:800; text-transform:uppercase; font-size:16px; letter-spacing:2px}
+.stat{display:flex; gap:10px; margin:12px 0; flex-wrap:wrap; justify-content:center}
+.stat div{background:white; padding:10px 16px; border-radius:14px; font-weight:800; color:#4a3aff; box-shadow:0 4px 12px rgba(0,0,0,0.06); font-size:14px}
+#win{position:fixed; inset:0; background:rgba(253,242,248,0.92); backdrop-filter:blur(15px); display:none; align-items:center; justify-content:center; flex-direction:column; z-index:10; text-align:center; padding:20px}
+</style>
+</head>
+<body>
+<div class="bg-blob blob1"></div><div class="bg-blob blob2"></div>
+<h1>Blossom <span>Pairs</span></h1>
+<div class="tag">FLIP • GRAB • BLOOM • ONLINE</div>
+
+<div class="panel" id="panel">
+ <div id="step1">
+  <button style="background:#4a3aff; width:100%; padding:14px; font-size:15px;" onclick="createRoom()">👥 CREATE ONLINE ROOM</button>
+  <p style="margin:14px 0 8px; font-size:13px; color:#171616; font-weight:600;">— OR JOIN FRIEND —</p>
+  <div style="display:flex; gap:8px; justify-content:center; align-items:center;">
+    <input id="codeInput" placeholder="CODE" maxlength="5">
+    <button style="background:#ff3e8a;" onclick="joinRoom()">JOIN</button>
+  </div>
+  <p style="font-size:13px; color:#121212e4; margin:8px 0 0; font-weight:600;">👩‍❤️‍👩PLAY WITH FRIENDS💑</p>
+ </div>
+ <div id="step2" style="display:none;">
+  <h3 id="roomText" style="margin:0 0 6px;"></h3>
+  <p id="statusText" style="font-size:13px; color:#666; margin:0 0 12px; font-weight:600;">Connecting...</p>
+  <button style="background:#25D366;" onclick="shareWA()">📱 Share Code</button>
+  <button onclick="location.reload()" style="background:#777;">Leave</button>
+ </div>
+</div>
+
+<div class="stat">
+  <div id="me">You: 0</div><div id="frnd">Friend: 0</div><div id="time">Time: 0s</div>
+</div>
+<div class="grid" id="board"></div>
+<button onclick="if(confirm('Restart offline?')){ location.reload(); }" style="margin-top:15px; background:white; color:#111; border:1px solid #ddd;">🔄 Restart Offline</button>
+
+<div id="win"><h1 style="font-size:42px; color:#ff3e8a;">You Bloomed! 🌸</h1><h2 id="winMsg" style="color:#4a3aff;"></h2><button onclick="location.reload()" style="background:#4a3aff;">Play Again</button></div>
+
+<script>
+let peer=null, conn=null, isHost=false, myScore=0, friendScore=0, first=null, second=null, lock=false, time=0, timer=null, boardData=[];
+const emojis=['🌸','🌙','⭐','🍓','🐱','🍕','🚀','💜'];
+
+function createRoom(){
+  const code = Math.random().toString(36).substring(2,7).toUpperCase();
+  const peerId = 'blossom-'+code;
+  isHost=true;
+  document.getElementById('step1').style.display='none';
+  document.getElementById('step2').style.display='block';
+  document.getElementById('roomText').innerHTML=`ROOM CODE: <b style="font-size:28px; color:#4a3aff; letter-spacing:3px;">${code}</b>`;
+  document.getElementById('statusText').innerText='Creating room... wait 2 sec';
+
+  peer = new Peer(peerId);
+  peer.on('open', ()=>{ document.getElementById('statusText').innerText='✅ Room Ready! Share code & wait for friend'; document.getElementById('statusText').style.color='green'; });
+  peer.on('connection', (c)=>{
+    conn=c; setupConn(true);
+    document.getElementById('statusText').innerText='✅ Friend Joined! Starting game...';
+    setTimeout(()=>{
+      boardData=[...emojis,...emojis].sort(()=>0.5-Math.random());
+      if(conn.open) conn.send({type:'start', board:boardData});
+      startGame(boardData);
+    },600);
+  });
+  peer.on('error', (e)=>{ document.getElementById('statusText').innerText='Error: Try again (Code maybe taken)'; });
+}
+
+function joinRoom(){
+  const code = document.getElementById('codeInput').value.trim().toUpperCase();
+  if(code.length<3) return alert('Enter 5-letter Code');
+  isHost=false;
+  document.getElementById('step1').style.display='none';
+  document.getElementById('step2').style.display='block';
+  document.getElementById('roomText').innerHTML=`JOINING: <b style="letter-spacing:3px;">${code}</b>`;
+  document.getElementById('statusText').innerText='Connecting to host...';
+
+  peer = new Peer();
+  peer.on('open', ()=>{
+    const hostId='blossom-'+code;
+    conn=peer.connect(hostId, {reliable:true});
+    setupConn(false);
+    // retry after 3 sec if not connected
+    setTimeout(()=>{ if(!conn || !conn.open) document.getElementById('statusText').innerText='❌ Failed! Check code & try again'; }, 4000);
+  });
+}
+
+function setupConn(host){
+  if(!conn) return;
+  conn.on('open', ()=>{
+    if(!host) document.getElementById('statusText').innerText='✅ Connected! Waiting for host to start...';
+  });
+  conn.on('data', (d)=>{
+    if(d.type==='start'){ boardData=d.board; startGame(d.board); document.getElementById('statusText').innerText='✅ Game Started! Good Luck!'; }
+    if(d.type==='flip'){ doFlip(d.index, true); }
+    if(d.type==='match'){ friendScore++; document.getElementById('frnd').innerText='Friend: '+friendScore; }
+    if(d.type==='win'){ document.getElementById('win').style.display='flex'; document.getElementById('winMsg').innerText=d.msg; }
+  });
+  conn.on('close', ()=>{ document.getElementById('statusText').innerText='❌ Friend disconnected'; });
+  conn.on('error', ()=>{ document.getElementById('statusText').innerText='Connection Error - Code wrong?'; });
+}
+
+function startGame(boardArr){
+  const b=document.getElementById('board'); b.innerHTML=''; myScore=0; friendScore=0; first=null; second=null; lock=false;
+  document.getElementById('me').innerText='You: 0'; document.getElementById('frnd').innerText='Friend: 0';
+  clearInterval(timer); time=0; document.getElementById('time').innerText='Time: 0s';
+  timer=setInterval(()=>{ time++; document.getElementById('time').innerText='Time: '+time+'s'; },1000);
+  boardArr.forEach((emo,i)=>{
+    const c=document.createElement('div'); c.className='card'; c.innerHTML=`<div class="front">${emo}</div><div class="back"></div>`;
+    c.onclick=()=>flip(i);
+    b.appendChild(c);
+  });
+}
+
+function flip(i){
+  if(lock) return;
+  const card=document.querySelectorAll('.card')[i];
+  if(card.classList.contains('flipped') || card.classList.contains('matched')) return;
+  doFlip(i,false);
+  if(conn && conn.open) conn.send({type:'flip', index:i});
+}
+
+function doFlip(i, fromFriend){
+  const cards=document.querySelectorAll('.card');
+  const card=cards[i]; if(!card) return;
+  card.classList.add('flipped');
+  if(!first){ first={card, index:i, emo: card.querySelector('.front').textContent}; }
+  else{
+    if(first.index===i) return;
+    second={card, index:i, emo: card.querySelector('.front').textContent};
+    lock=true;
+    setTimeout(()=>{
+      if(first.emo===second.emo){
+        first.card.classList.add('matched'); second.card.classList.add('matched');
+        if(!fromFriend){ myScore++; document.getElementById('me').innerText='You: '+myScore; if(conn && conn.open) conn.send({type:'match'}); }
+        else{ friendScore++; document.getElementById('frnd').innerText='Friend: '+friendScore; }
+        if(document.querySelectorAll('.matched').length===16){
+          clearInterval(timer);
+          const winText = myScore>friendScore ? `You Win! ${myScore} vs ${friendScore} 🎉` : myScore<friendScore ? `Friend Wins! ${friendScore} vs ${myScore}` : `Draw! ${myScore}-${friendScore} 🤝`;
+          document.getElementById('win').style.display='flex'; document.getElementById('winMsg').innerText=winText;
+          if(conn && conn.open) conn.send({type:'win', msg: winText});
+        }
+      } else {
+        first.card.classList.remove('flipped'); second.card.classList.remove('flipped');
+      }
+      first=null; second=null; lock=false;
+    },700);
+  }
+}
+
+function shareWA(){
+  const code = document.getElementById('roomText').innerText;
+  const msg = `🌸 Join my Blossom Pairs Game!\n${code}\nLink: ${location.href}\nJust open link and type the CODE to join!`;
+  window.open('https://wa.me/?text='+encodeURIComponent(msg), '_blank');
+}
+
+// Start offline demo (no timer until online or first flip)
+// This prevents 184s bug
+(function initOffline(){
+  const b=document.getElementById('board'); const arr=[...emojis,...emojis].sort(()=>0.5-Math.random()); boardData=arr;
+  b.innerHTML='';
+  arr.forEach((emo,i)=>{
+    const c=document.createElement('div'); c.className='card'; c.innerHTML=`<div class="front">${emo}</div><div class="back"></div>`;
+    c.onclick=()=>{ 
+      if(!timer){ clearInterval(timer); time=0; timer=setInterval(()=>{ time++; document.getElementById('time').innerText='Time: '+time+'s'; },1000); }
+      flip(i); 
+    };
+    b.appendChild(c);
+  });
+})();
+</script>
+</body>
+</html>
